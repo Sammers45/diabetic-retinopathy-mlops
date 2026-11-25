@@ -18,8 +18,8 @@ drift monitoring, all with MLflow.
 | 1 | Data download with kagglehub | ✅ done (`phase-1`) |
 | 2 | Ingest, validate, image quality, EDA | ✅ done (`phase-2`) |
 | 3 | Patient-level split and preprocessing (PNG cache) | ✅ done (`phase-3`) |
-| 4 | Training with MLflow tracking | ⏳ next |
-| 5 | Evaluation, reference profile, registry, model card | ⬜ |
+| 4 | Training with MLflow tracking | ✅ done (`phase-4`) |
+| 5 | Evaluation, reference profile, registry, model card | ⏳ next |
 | 6 | Serving (FastAPI) and prediction log | ⬜ |
 | 7 | Drift monitoring (Evidently → MLflow) | ⬜ |
 | 8 | Champion/challenger retraining and scheduled CI | ⬜ |
@@ -127,7 +127,37 @@ Building the cache for the 2,998 images at 224 px takes about 35 s on 10 workers
 The picture above is made from *synthetic* test images. The same check on real photographs is
 written to `reports/local/`, which is git-ignored because of the image licence.
 
-The `train` and `train-baseline` targets are added in Phases 4–5.
+### 3. Train (Phase 4)
+
+```bash
+make train                          # EfficientNet-B0 (ImageNet weights); or: .\scripts\tasks.ps1 train
+make train-baseline                 # small CNN trained from scratch, for comparison
+make ui                             # MLflow UI at http://localhost:5000 -> experiment "dr-training"
+```
+
+- **Models** (`src/dr/models.py`): EfficientNet-B0/B3 or a baseline CNN. Augmentation (flips, full
+  rotation, zoom, brightness, contrast) runs inside the model and is active only in training. A
+  dense `embedding` layer is used later for drift monitoring.
+- **Schedule** (`src/dr/train.py`): first the head is trained with the backbone frozen. Then the
+  top `model.fine_tune_layers` backbone layers are unfrozen at a lower learning rate, with
+  **BatchNorm kept frozen and in inference mode**. Early stopping uses validation AUC, class
+  weights balance the classes, and the explicit validation split is used (never Keras
+  `validation_split`). Data comes from `tf.data` over the cached PNGs. A random-init backbone
+  (`--no-pretrained`, offline tests only) trains end to end instead.
+- **MLflow tracking:**
+  - every config value as a parameter, plus the manifest's MD5
+  - tags for profile, git commit (and whether the working tree had uncommitted changes), GPU,
+    model family and TensorFlow version
+  - metrics for every epoch, on one step counter that runs across both stages
+  - the manifest as a dataset input
+  - `model.keras` and `history.json` as artifacts
+
+**First real local run** (`local_cpu`, MLflow run `7a129037872e4dcbb58f0d6a6cffafe1`): 2 head
+epochs plus 3 fine-tuning epochs took **6.9 minutes** on a laptop CPU, with a best **validation**
+AUC of 0.774. This is a pipeline check on 2,100 training images at 224 px, not a result: test-set
+metrics are computed once, in Phase 5.
+
+`notebooks/colab_train.ipynb` runs the same code on the full data at 384 px with a GPU.
 
 ## Configuration
 
@@ -161,7 +191,7 @@ Overriding an unknown key is an error, so typos never pass silently.
 
 ```
 configs/            base.yaml + profiles/{local_cpu,colab}.yaml
-src/dr/             pipeline package (config, tracking, download, data, preprocess, eda so far)
+src/dr/             pipeline package (config, tracking, download, data, preprocess, eda, models, train so far)
 scripts/            make_synthetic_fixtures.py, build_*_notebook.py, tasks.ps1
 tests/              one test file per phase, synthetic data only
 reports/            aggregate EDA charts and synthetic visual checks (no patient images)

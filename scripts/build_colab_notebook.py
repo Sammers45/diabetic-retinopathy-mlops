@@ -68,7 +68,9 @@ except Exception as exc:  # secret missing or access not granted
     print(f"KAGGLE_API_TOKEN secret not available ({type(exc).__name__}); download will fail.")
 
 os.environ["DR_PROFILE"] = "colab"
-os.environ["PYTHONPATH"] = "src"
+os.environ["PYTHONPATH"] = "src"          # for the `!python -m dr...` subprocesses
+import sys
+sys.path.insert(0, "/content/repo/src")   # for `from dr import ...` in this notebook
 os.environ["MLFLOW_DISABLE_AGENT_HINT"] = "1"
 # Optional: use a remote MLflow server instead of the sqlite store on Drive.
 # os.environ["MLFLOW_TRACKING_URI"] = "https://your-mlflow-server"
@@ -98,9 +100,21 @@ split = json.load(open("/content/data/processed/split_summary.json"))
 print(json.dumps({"splits": split["splits"], "leakage": split["leakage"]}, indent=1))
 """
     ),
+    md("## 5. Train\nEfficientNet-B0 on the full data at 384 px with mixed precision. Evaluation and registration are added in Phase 5."),
+    code(
+        """
+!python -m dr.train --run-name effb0-colab
+
+import mlflow
+from dr.config import load_config
+from dr.tracking import setup_mlflow
+setup_mlflow(load_config(), "dr-training")
+run = mlflow.search_runs(experiment_names=["dr-training"], order_by=["start_time DESC"], max_results=1).iloc[0]
+print("run", run.run_id, "| best val AUC", run.get("metrics.best_val_auc"), "| train minutes", round(run.get("metrics.train_seconds", 0) / 60, 1))
+"""
+    ),
     md(
         """
-## 5. Train, evaluate, register *(Phases 4–5)*
 ## 6. Monitoring replay *(Phase 7)*
 ## 7. Viewing runs
 

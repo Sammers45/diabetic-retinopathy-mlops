@@ -17,6 +17,8 @@ jobs:
       PYTHONPATH: src
       MLFLOW_DISABLE_AGENT_HINT: "1"
       TF_CPP_MIN_LOG_LEVEL: "2"
+      # TensorFlow tests may skip on dev machines where TF cannot load; in CI they must run.
+      DR_REQUIRE_TF: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

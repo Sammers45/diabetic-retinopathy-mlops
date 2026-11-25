@@ -36,6 +36,21 @@ def clean_mlflow_env() -> Iterator[None]:
             os.environ["MLFLOW_TRACKING_URI"] = saved
 
 
+def require_tensorflow():
+    """Import TensorFlow, or skip the test where it cannot load.
+
+    Locally, Windows Smart App Control can block TensorFlow's DLLs; those tests are then skipped.
+    CI sets ``DR_REQUIRE_TF=1`` so a broken TensorFlow install fails loudly instead of skipping.
+    """
+    try:
+        import tensorflow as tf
+    except ImportError as exc:
+        if os.environ.get("DR_REQUIRE_TF") == "1":
+            raise
+        pytest.skip(f"TensorFlow unavailable here: {exc}", allow_module_level=True)
+    return tf
+
+
 @pytest.fixture
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]

@@ -88,6 +88,17 @@ def setup_mlflow(cfg: Mapping[str, Any], experiment_name: str) -> TrackingInfo:
     return TrackingInfo(uri, user_set, experiment_name, experiment_id, artifact_location)
 
 
+def git_dirty() -> bool | None:
+    """True if tracked files have uncommitted changes (the commit tag alone would then mislead)."""
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True, check=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return bool(out.stdout.strip())
+
+
 def git_commit(short: bool = False) -> str | None:
     """Current git commit (for run tags), or ``None`` outside a git checkout."""
     cmd = ["git", "rev-parse", "--short" if short else "--verify", "HEAD"]
