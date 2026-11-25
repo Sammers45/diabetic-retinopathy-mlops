@@ -3,26 +3,26 @@
 [![tests](https://github.com/Sammers45/diabetic-retinopathy-mlops/actions/workflows/tests.yml/badge.svg)](https://github.com/Sammers45/diabetic-retinopathy-mlops/actions/workflows/tests.yml)
 
 This project classifies retinal fundus photographs from EyePACS (Kaggle "Diabetic Retinopathy
-Detection", 2015) as **referable diabetic retinopathy** (ICDR grade ≥ 2) or not. It is built as
+Detection", 2015) as **referable diabetic retinopathy** (ICDR grade â‰¥ 2) or not. It is built as
 a reproducible MLOps pipeline: experiment tracking, a model registry, serving and post-deployment
 drift monitoring, all with MLflow.
 
-> ⚠️ **Not a medical device.** This is a portfolio/research project. Its outputs must not be used
+> âš ï¸ **Not a medical device.** This is a portfolio/research project. Its outputs must not be used
 > for diagnosis, screening or any clinical decision.
 
 ## Status
 
 | Phase | Scope | Status |
 |---|---|---|
-| 0 | Setup: config system, MLflow helper, synthetic fixtures, CI | ✅ done (`phase-0`) |
-| 1 | Data download with kagglehub | ⏳ next |
-| 2 | Ingest, validate, image quality, EDA | ⬜ |
-| 3 | Patient-level split and preprocessing (PNG cache) | ⬜ |
-| 4 | Training with MLflow tracking | ⬜ |
-| 5 | Evaluation, reference profile, registry, model card | ⬜ |
-| 6 | Serving (FastAPI) and prediction log | ⬜ |
-| 7 | Drift monitoring (Evidently → MLflow) | ⬜ |
-| 8 | Champion/challenger retraining and scheduled CI | ⬜ |
+| 0 | Setup: config system, MLflow helper, synthetic fixtures, CI | âœ… done (`phase-0`) |
+| 1 | Data download with kagglehub | â³ next |
+| 2 | Ingest, validate, image quality, EDA | â¬œ |
+| 3 | Patient-level split and preprocessing (PNG cache) | â¬œ |
+| 4 | Training with MLflow tracking | â¬œ |
+| 5 | Evaluation, reference profile, registry, model card | â¬œ |
+| 6 | Serving (FastAPI) and prediction log | â¬œ |
+| 7 | Drift monitoring (Evidently â†’ MLflow) | â¬œ |
+| 8 | Champion/challenger retraining and scheduled CI | â¬œ |
 
 ## Results
 
@@ -32,9 +32,9 @@ reported here. Tests use synthetic images, and their numbers are never reported 
 ## Task definition
 
 - **Input:** one colour fundus photograph (one eye).
-- **Label:** `1` if ICDR grade ≥ 2 (moderate NPDR, severe NPDR, proliferative DR), else `0`.
+- **Label:** `1` if ICDR grade â‰¥ 2 (moderate NPDR, severe NPDR, proliferative DR), else `0`.
 - **Output:** `P(referable)` and a yes/no decision. The threshold is chosen on validation data
-  to give ≥ 90% sensitivity.
+  to give â‰¥ 90% sensitivity.
 
 ## Quick start (local CPU)
 
@@ -53,7 +53,7 @@ make fixtures test
 .\scripts\tasks.ps1 test
 ```
 
-The real-data targets (`download`, `data`, `train`, `train-baseline`) are added in Phases 1–5.
+The real-data targets (`download`, `data`, `train`, `train-baseline`) are added in Phases 1â€“5.
 
 ## Configuration
 
@@ -65,7 +65,7 @@ There is one config system, applied in this order:
    - `colab`: full data, 384 px, mixed precision, MLflow on Google Drive
 3. command-line overrides: `--set key.sub=value`, which can be repeated.
 
-The profile is auto-detected (Colab → `colab`, otherwise `local_cpu`). You can override it with
+The profile is auto-detected (Colab â†’ `colab`, otherwise `local_cpu`). You can override it with
 the `DR_PROFILE` environment variable or `--profile`. To print the resolved config:
 
 ```bash
@@ -87,7 +87,7 @@ Overriding an unknown key is an error, so typos never pass silently.
 
 ```
 configs/            base.yaml + profiles/{local_cpu,colab}.yaml
-src/dr/             pipeline package (config.py, tracking.py so far)
+src/dr/             pipeline package (config, tracking, download so far)
 scripts/            make_synthetic_fixtures.py, tasks.ps1
 tests/              one test file per phase, synthetic data only
 notebooks/          colab_train.ipynb (calls src/ code only)

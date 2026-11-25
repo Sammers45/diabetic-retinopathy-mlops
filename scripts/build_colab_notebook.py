@@ -76,9 +76,18 @@ os.environ["MLFLOW_DISABLE_AGENT_HINT"] = "1"
 !python -m dr.config | head -n 40
 """
     ),
+    md("## 3. Download data"),
+    code(
+        """
+# Edit these two if you want a different source (see data/README.md).
+DATA_SOURCE = "kaggle_dataset"            # kaggle_dataset | kaggle_competition | local
+KAGGLE_DATASET = "tanlikesmath/diabetic-retinopathy-resized"
+
+!python -m dr.download --set data.source={DATA_SOURCE} --set data.kaggle_dataset={KAGGLE_DATASET}
+"""
+    ),
     md(
         """
-## 3. Download data *(Phase 1)*
 ## 4. Ingest and data quality *(Phase 2)*
 ## 5. Train, evaluate, register *(Phases 4–5)*
 ## 6. Monitoring replay *(Phase 7)*

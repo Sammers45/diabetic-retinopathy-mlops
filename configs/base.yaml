@@ -18,11 +18,17 @@ paths:
 data:
   # local | kaggle_dataset | kaggle_competition
   source: "kaggle_dataset"
-  # "<owner>/<dataset>" of an EyePACS copy with a labels CSV (image, level). Must be set explicitly.
-  kaggle_dataset: null
+  # "<owner>/<dataset>" of an EyePACS copy with a labels CSV (image, level).
+  # Chosen copy: Kaggle "Diabetic Retinopathy (resized)", 7.8 GB. Labels verified against the
+  # competition counts (25,810/2,443/5,292/873/708). Use trainLabels.csv + resized_train/.
+  kaggle_dataset: "tanlikesmath/diabetic-retinopathy-resized"
   kaggle_competition: "diabetic-retinopathy-detection"
   # The full competition archive is ~35 GB; downloading it requires this explicit opt-in.
   allow_full_competition_download: false
+  # Refuse to start a download with less free disk space than this (GB).
+  min_free_gb: 20
+  # Delete .zip archives after successful extraction to save disk space.
+  delete_archives: false
   # Stratified patient subset size (images). null = use all data.
   max_images: null
   # ICDR grade >= this value is "referable" (label 1).

@@ -155,6 +155,19 @@ def get(cfg: Mapping[str, Any], dotted: str, default: Any = None) -> Any:
     return node
 
 
+def resolve_path(cfg: Mapping[str, Any], dotted: str) -> Path:
+    """Resolve a path setting; relative paths are anchored at the repo root, not the CWD.
+
+    Why: CLIs are run from the repo root, notebooks from ``notebooks/`` and tests from anywhere;
+    anchoring keeps ``data/raw`` pointing at the same folder in every case.
+    """
+    value = get(cfg, dotted)
+    if value is None:
+        raise ConfigError(f"Path setting {dotted!r} is not set.")
+    path = Path(str(value)).expanduser()
+    return path if path.is_absolute() else (REPO_ROOT / path).resolve()
+
+
 def flatten(cfg: Mapping[str, Any], prefix: str = "") -> dict[str, Any]:
     """Flatten nested config into ``{"a.b": value}``; used to log every setting to MLflow."""
     flat: dict[str, Any] = {}
