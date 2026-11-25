@@ -96,5 +96,15 @@ Thresholds are re-applied without re-scanning the images, because statistics are
 | `quality` | str | `ok` or `poor:<unreadable|too_dark|no_fundus|overexposed|blurred>` |
 | `quality_ok` | bool | `quality == "ok"` |
 
-Phase 3 adds `split` (`train`, `val`, `test`) and the group id used to keep patients and identical
-files together.
+| `group_id` | str | Split group: `g<lowest patient id>`. Patients that share a byte-identical file are merged into one group. |
+| `group_label` | float | Worst-eye label of the group, used for stratification (empty for excluded rows) |
+| `split` | str | `train`, `val` or `test`; `unused` (outside the `local_cpu` subset) or `excluded` (`data.exclude_quality`, by default unreadable files) |
+
+The split depends on the profile (`data.max_images`) and on `project.seed`.
+`data/processed/split_summary.json` records the counts per split, the seed and the leakage checks.
+
+## Preprocessed cache (`data/processed/images_<size>/`)
+
+`<image>.png` holds RGB uint8 data of size `size × size`, produced by
+`dr.preprocess.preprocess_image`. Serving and monitoring call the same function. `CACHE_INFO.json`
+stores the preprocessing settings, and changing any of them rebuilds the cache.

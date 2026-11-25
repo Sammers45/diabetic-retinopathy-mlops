@@ -317,20 +317,261 @@ def print_summary(report: Mapping[str, Any]) -> None:
     print(f"MD5: {md['files_sharing_md5']} files share an MD5; {md['md5_groups_spanning_patients']} groups span patients")
 
 
+# =========================================================================== Phase 3: split
+SPLITS = ("train", "val", "test")
+SPLIT_SUMMARY = "split_summary.json"
+CACHE_INFO = "CACHE_INFO.json"
+
+
+def assign_groups(df: pd.DataFrame) -> pd.Series:
+    """Group id per image: same patient, or connected through a shared MD5, means same group.
+
+    Why: both eyes of a patient are correlated, and a byte-identical file under two patient ids
+    is the same photograph. Either one crossing the train/test boundary leaks information.
+    Implemented as union-find over patient ids, joined by MD5.
+    """
+    parent: dict[str, str] = {p: p for p in df["patient_id"].astype(str).unique()}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for _, pids in df.dropna(subset=["md5"]).groupby("md5")["patient_id"]:
+        ids = pids.astype(str).unique()
+        for other in ids[1:]:
+            ra, rb = find(ids[0]), find(other)
+            if ra != rb:
+                parent[max(ra, rb, key=_pid_key)] = min(ra, rb, key=_pid_key)
+    return df["patient_id"].astype(str).map(lambda p: f"g{find(p)}")
+
+
+def _pid_key(p: str) -> tuple[int, str]:
+    return (int(p), p) if p.isdigit() else (sys.maxsize, p)
+
+
+def _group_table(df: pd.DataFrame) -> pd.DataFrame:
+    """One row per group: image count and the worst-eye label used for stratification."""
+    return (
+        df.groupby("group_id")
+        .agg(n_images=("image", "size"), group_label=("label", "max"))
+        .reset_index()
+        .sort_values("group_id", key=lambda s: s.map(lambda g: _pid_key(g[1:])))
+        .reset_index(drop=True)
+    )
+
+
+def subset_groups(groups: pd.DataFrame, max_images: int | None, seed: int) -> set[str]:
+    """Stratified *patient-group* subset with about ``max_images`` images (local_cpu profile)."""
+    total = int(groups["n_images"].sum())
+    if not max_images or max_images >= total:
+        return set(groups["group_id"])
+    frac = max_images / total
+    keep: list[str] = []
+    for cls, g in groups.groupby("group_label"):
+        g = g.sample(frac=1.0, random_state=seed + int(cls))
+        target = frac * g["n_images"].sum()
+        cum = g["n_images"].cumsum()
+        keep += g.loc[cum <= max(target, g["n_images"].iloc[0]), "group_id"].tolist()
+    return set(keep)
+
+
+def split_groups(groups: pd.DataFrame, fractions: Mapping[str, float], seed: int) -> dict[str, str]:
+    """Stratified train/val/test assignment of groups by worst-eye label.
+
+    Groups of each class are shuffled and laid out along their cumulative image count, so the
+    image-level proportions match the requested fractions even though groups differ in size.
+    Every split gets at least one group per class whenever the class has three or more groups.
+    """
+    f_train = float(fractions["train"])
+    f_val = float(fractions["val"])
+    if abs(f_train + f_val + float(fractions["test"]) - 1.0) > 1e-6:
+        raise DataError(f"data.split fractions must sum to 1, got {dict(fractions)}")
+    out: dict[str, str] = {}
+    for cls, g in groups.groupby("group_label"):
+        g = g.sample(frac=1.0, random_state=seed + 101 * (int(cls) + 1)).reset_index(drop=True)
+        pos = (g["n_images"].cumsum() - g["n_images"] / 2) / g["n_images"].sum()
+        assigned = np.where(pos < f_train, "train", np.where(pos < f_train + f_val, "val", "test"))
+        if len(g) >= 3:
+            for need in ("test", "val"):
+                if need not in assigned:
+                    idx = int(np.flatnonzero(assigned == "train")[-1])
+                    assigned[idx] = need
+        out.update(dict(zip(g["group_id"], assigned, strict=True)))
+    return out
+
+
+def make_splits(df: pd.DataFrame, cfg: Mapping[str, Any]) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Add ``group_id``, ``group_label`` and ``split`` (train/val/test/unused/excluded) columns."""
+    seed = int(get(cfg, "project.seed", 42))
+    out = df.copy()
+    excluded = out["quality"].isin(get(cfg, "data.exclude_quality", []) or [])
+    out["group_id"] = assign_groups(out)
+    usable = out[~excluded]
+    groups = _group_table(usable)
+    chosen = subset_groups(groups, get(cfg, "data.max_images"), seed)
+    groups = groups[groups["group_id"].isin(chosen)]
+    assignment = split_groups(groups, get(cfg, "data.split"), seed)
+    out["group_label"] = out["group_id"].map(dict(zip(groups["group_id"], groups["group_label"], strict=True)))
+    out["split"] = out["group_id"].map(assignment).fillna("unused")
+    out.loc[excluded, "split"] = "excluded"
+
+    summary = split_summary(out)
+    summary.update(
+        {
+            "seed": seed,
+            "max_images": get(cfg, "data.max_images"),
+            "fractions": dict(get(cfg, "data.split")),
+            "excluded_quality": list(get(cfg, "data.exclude_quality", []) or []),
+            "profile": get(cfg, "meta.profile"),
+        }
+    )
+    for s in SPLITS:
+        if summary["splits"].get(s, {}).get("positives", 0) == 0 or summary["splits"].get(s, {}).get("negatives", 0) == 0:
+            raise DataError(f"Split {s!r} lacks one of the classes; increase data.max_images. {summary['splits']}")
+    return out, summary
+
+
+def split_summary(df: pd.DataFrame) -> dict[str, Any]:
+    """Counts per split plus leakage checks (recorded in split_summary.json)."""
+    used = df[df["split"].isin(SPLITS)]
+    per: dict[str, Any] = {}
+    for s in SPLITS:
+        part = used[used["split"] == s]
+        per[s] = {
+            "images": int(len(part)),
+            "patients": int(part["patient_id"].nunique()),
+            "groups": int(part["group_id"].nunique()),
+            "positives": int(part["label"].sum()),
+            "negatives": int((part["label"] == 0).sum()),
+            "referable_share": round(float(part["label"].mean()), 4) if len(part) else None,
+            "poor_quality_share": round(float((~part["quality_ok"]).mean()), 4) if len(part) else None,
+        }
+    leaks = {
+        "patients_in_multiple_splits": int((used.groupby("patient_id")["split"].nunique() > 1).sum()),
+        "md5_in_multiple_splits": int((used.groupby("md5")["split"].nunique() > 1).sum()),
+        "groups_in_multiple_splits": int((used.groupby("group_id")["split"].nunique() > 1).sum()),
+    }
+    return {
+        "splits": per,
+        "unused": int((df["split"] == "unused").sum()),
+        "excluded": int((df["split"] == "excluded").sum()),
+        "leakage": leaks,
+        "merged_md5_groups": int((df.groupby("group_id")["patient_id"].nunique() > 1).sum()),
+    }
+
+
+# =========================================================================== Phase 3: cache
+def cache_dir(cfg: Mapping[str, Any]) -> Path:
+    size = int(get(cfg, "preprocess.image_size"))
+    return resolve_path(cfg, "paths.processed_dir") / f"images_{size}"
+
+
+def cache_path(cfg: Mapping[str, Any], image: str) -> Path:
+    return cache_dir(cfg) / f"{image}.png"
+
+
+def _cache_one(args: tuple[str, str, int, dict[str, Any], float]) -> str | None:
+    src, dst, size, pre, thr = args
+    img = P.read_image(src)
+    if img is None:
+        return src
+    P.save_png(P.preprocess_image(img, size, pre, thr), dst)
+    return None
+
+
+def cache_preprocessed(df: pd.DataFrame, cfg: Mapping[str, Any], workers: int, force: bool = False) -> dict[str, Any]:
+    """Preprocess every train/val/test image into ``images_<size>/<image>.png``.
+
+    The directory carries the preprocessing signature; if the settings change, cached files are
+    rebuilt rather than silently reused.
+    """
+    size = int(get(cfg, "preprocess.image_size"))
+    pre = dict(get(cfg, "preprocess"))
+    thr = float(get(cfg, "quality.mask_threshold", 10.0))
+    out_dir = cache_dir(cfg)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sig = P.preprocess_signature(size, pre, thr)
+    info_file = out_dir / CACHE_INFO
+    if info_file.exists() and json.loads(info_file.read_text(encoding="utf-8")).get("signature") != sig:
+        print(f"  preprocessing settings changed; rebuilding {out_dir}")
+        force = True
+    raw_dir = resolve_path(cfg, "paths.raw_dir")
+    rows = df[df["split"].isin(SPLITS)]
+    jobs = [
+        (str(raw_dir / r.path), str(out_dir / f"{r.image}.png"), size, pre, thr)
+        for r in rows.itertuples()
+        if force or not (out_dir / f"{r.image}.png").exists()
+    ]
+    t0 = time.time()
+    if workers > 1 and len(jobs) > 20:
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            failed = [f for f in ex.map(_cache_one, jobs, chunksize=32) if f]
+    else:
+        failed = [f for f in map(_cache_one, jobs) if f]
+    info = {"signature": sig, "images": int(len(rows)), "written": len(jobs) - len(failed), "failed": failed[:20]}
+    info_file.write_text(json.dumps(info, indent=2), encoding="utf-8")
+    print(f"  cached {len(jobs) - len(failed)} PNGs ({len(rows) - len(jobs)} already present) in {time.time() - t0:.0f}s -> {out_dir}")
+    if failed:
+        raise DataError(f"{len(failed)} images could not be preprocessed, e.g. {failed[:3]}")
+    return info
+
+
+def save_visual_check(df: pd.DataFrame, cfg: Mapping[str, Any], out_path: Path, n: int = 4, seed: int = 0) -> Path:
+    """Side-by-side raw vs preprocessed images, one row per sample, for a visual sanity check."""
+    import cv2
+
+    raw_dir = resolve_path(cfg, "paths.raw_dir")
+    size = int(get(cfg, "preprocess.image_size"))
+    pool = df[df["split"].isin(SPLITS) & df["quality_ok"]]
+    sample = pd.concat(
+        [g.sample(min(len(g), max(1, n // 2)), random_state=seed) for _, g in pool.groupby("label")]
+    )
+    rows = []
+    for r in sample.itertuples():
+        raw = P.read_image(raw_dir / r.path)
+        left = P._pad_to_square(P.resize_long_side(raw, size), 0)
+        right = P.load_png(cache_path(cfg, r.image))[..., ::-1]
+        row = np.hstack([left, np.full((size, 8, 3), 255, np.uint8), right])
+        cv2.putText(row, f"{r.image} grade {r.level}", (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        rows.append(row)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    P.save_png(np.vstack(rows)[..., ::-1], out_path)
+    return out_path
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = add_config_args(argparse.ArgumentParser(description="Ingest, validate and profile the data."))
+    parser = add_config_args(argparse.ArgumentParser(description="Ingest, validate, split and preprocess the data."))
     parser.add_argument("--workers", type=int, default=None, help="Parallel workers (default: data.num_workers).")
+    parser.add_argument("--skip-cache", action="store_true", help="Stop after the split; do not write PNGs.")
+    parser.add_argument("--force-cache", action="store_true", help="Rebuild every cached PNG.")
     args = parser.parse_args(argv)
     try:
         cfg = config_from_args(args)
-        df, report = build_manifest(cfg, args.workers)
+        workers = args.workers or int(get(cfg, "data.num_workers", 4))
+        df, report = build_manifest(cfg, workers)
+        processed = resolve_path(cfg, "paths.processed_dir")
+        df, summary = make_splits(df, cfg)
+        manifest_path, report_path = write_outputs(df, report, processed)
+        (processed / SPLIT_SUMMARY).write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        print_summary(report)
+        print_split_summary(summary)
+        if not args.skip_cache:
+            cache_preprocessed(df, cfg, workers, force=args.force_cache)
+            check = save_visual_check(df, cfg, resolve_path(cfg, "paths.reports_dir") / "local" / "preprocess_check.png")
+            print(f"Visual check: {check}")
     except (DataError, ConfigError) as exc:
         print(f"Data step failed: {exc}", file=sys.stderr)
         return 2
-    manifest_path, report_path = write_outputs(df, report, resolve_path(cfg, "paths.processed_dir"))
-    print_summary(report)
-    print(f"Wrote {manifest_path} and {report_path}")
+    print(f"Wrote {manifest_path}, {report_path} and {processed / SPLIT_SUMMARY}")
     return 0
+
+
+def print_split_summary(summary: Mapping[str, Any]) -> None:
+    for s, v in summary["splits"].items():
+        print(f"  {s:<5} {v['images']:>6} images  {v['patients']:>6} patients  referable {v['referable_share']:.2%}")
+    print(f"  unused {summary['unused']}, excluded {summary['excluded']}, leakage {summary['leakage']}")
 
 
 if __name__ == "__main__":

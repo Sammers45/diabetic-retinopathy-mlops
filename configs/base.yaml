@@ -35,6 +35,9 @@ data:
   labels_csv: null
   # Directory names (substrings) skipped when indexing images, e.g. pre-cropped variants.
   exclude_dirs: ["cropped"]
+  # Quality flags removed before splitting. Other poor-quality images are kept on purpose: the
+  # model has to cope with them in production, and the flag is reported alongside predictions.
+  exclude_quality: ["poor:unreadable"]
   # ICDR grade >= this value is "referable" (label 1).
   referable_min_grade: 2
   split:
@@ -69,6 +72,8 @@ preprocess:
   sigma_divisor: 30
   # Fraction of the radius kept; the outer rim is masked to remove edge artefacts.
   rim_fraction: 0.95
+  # Fraction of the image size by which the fundus mask is eroded (removes the blur halo).
+  edge_erode_fraction: 0.03
   # Lossless cache. JPEG caching caused train/serve skew in a previous attempt.
   cache_format: "png"
 

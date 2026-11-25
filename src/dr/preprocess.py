@@ -161,6 +161,116 @@ def quality_flag(stats: Mapping[str, Any], cfg_quality: Mapping[str, Any], reada
     return QUALITY_OK
 
 
+PAD_VALUE = 128  # Ben Graham's neutral grey for everything outside the fundus
+
+
+# --------------------------------------------------------------------------- model input
+def _square_crop_box(mask: np.ndarray) -> tuple[int, int, int, int]:
+    """Bounding box (x, y, w, h) of the mask; the whole image when the mask is (nearly) empty."""
+    h, w = mask.shape
+    if mask.sum() < 0.01 * mask.size:
+        return 0, 0, w, h
+    return cv2.boundingRect(mask.astype(np.uint8))
+
+
+def _pad_to_square(img: np.ndarray, value: int | bool) -> np.ndarray:
+    """Centre ``img`` on a square canvas (EyePACS fundi are often clipped top/bottom)."""
+    h, w = img.shape[:2]
+    side = max(h, w)
+    top, left = (side - h) // 2, (side - w) // 2
+    shape = (side, side, *img.shape[2:])
+    canvas = np.full(shape, value, dtype=img.dtype)
+    canvas[top : top + h, left : left + w] = img
+    return canvas
+
+
+def preprocess_image(
+    img_bgr: np.ndarray,
+    size: int,
+    cfg_pre: Mapping[str, Any],
+    mask_threshold: float = 10.0,
+) -> np.ndarray:
+    """Crop to the fundus, pad to square, resize, Ben Graham normalise, mask the rim.
+
+    Returns an **RGB uint8** ``(size, size, 3)`` array: exactly what is cached as PNG and what the
+    network receives (EfficientNet's own rescaling handles the 0-255 range).
+
+    Ben Graham local-contrast normalisation: ``4·img − 4·GaussianBlur(σ = size/sigma_divisor) + 128``
+    removes lighting differences between cameras while keeping lesions. Pixels outside the fundus
+    mask or beyond ``rim_fraction`` of the radius are set to 128 because the blur creates halo
+    artefacts at the fundus border.
+    """
+    mask = fundus_mask(img_bgr, mask_threshold)
+    x, y, w, h = _square_crop_box(mask)
+    if mask.sum() < 0.01 * mask.size:
+        mask = np.ones_like(mask)
+    img = _pad_to_square(img_bgr[y : y + h, x : x + w], 0)
+    m = _pad_to_square(mask[y : y + h, x : x + w].astype(np.uint8), 0)
+    interp = cv2.INTER_AREA if img.shape[0] >= size else cv2.INTER_CUBIC
+    img = cv2.resize(img, (size, size), interpolation=interp)
+    m = cv2.resize(m, (size, size), interpolation=cv2.INTER_NEAREST).astype(bool)
+
+    if cfg_pre.get("ben_graham", True):
+        # Fill the background with the mean fundus colour before blurring. Otherwise the blur
+        # averages in the black border and every pixel near the edge comes out too bright (halo).
+        if m.any():
+            fill = img[m].mean(axis=0)
+            img = np.where(m[..., None], img, fill.astype(np.uint8)).astype(np.uint8)
+        sigma = size / float(cfg_pre.get("sigma_divisor", 30))
+        blur = cv2.GaussianBlur(img, (0, 0), sigma)
+        img = cv2.addWeighted(img, 4.0, blur, -4.0, 128.0)
+    # Shrink the fundus mask a little: the blur makes a bright halo just inside the border.
+    k = max(3, int(round(size * float(cfg_pre.get("edge_erode_fraction", 0.03)))))
+    m = cv2.erode(m.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))).astype(bool)
+    yy, xx = np.ogrid[:size, :size]
+    c = (size - 1) / 2.0
+    radius = float(cfg_pre.get("rim_fraction", 0.95)) * size / 2.0
+    keep = m & (((yy - c) ** 2 + (xx - c) ** 2) <= radius**2)
+    img = img.copy()
+    img[~keep] = PAD_VALUE
+    return np.ascontiguousarray(img[..., ::-1])
+
+
+def preprocess_bytes(data: bytes, size: int, cfg_pre: Mapping[str, Any], mask_threshold: float = 10.0) -> np.ndarray | None:
+    """Bytes -> model input (RGB uint8), or ``None`` if the bytes are not an image."""
+    img = decode_image(data)
+    return None if img is None else preprocess_image(img, size, cfg_pre, mask_threshold)
+
+
+def save_png(rgb: np.ndarray, path: str | Path) -> None:
+    """Write an RGB uint8 array as lossless PNG.
+
+    PNG, not JPEG: a JPEG cache made the training inputs differ from serving inputs by about
+    1 grey level per pixel in a previous attempt (train/serve skew).
+    """
+    ok, buf = cv2.imencode(".png", np.ascontiguousarray(rgb[..., ::-1]))
+    if not ok:  # pragma: no cover
+        raise OSError(f"PNG encoding failed for {path}")
+    Path(path).write_bytes(buf.tobytes())
+
+
+def load_png(path: str | Path) -> np.ndarray:
+    """Read a cached PNG back as RGB uint8 (bit-exact inverse of ``save_png``)."""
+    img = decode_image(Path(path).read_bytes())
+    if img is None:
+        raise OSError(f"Cannot read cached image {path}")
+    return np.ascontiguousarray(img[..., ::-1])
+
+
+def preprocess_signature(size: int, cfg_pre: Mapping[str, Any], mask_threshold: float) -> dict[str, Any]:
+    """Settings that determine the cached pixels; a change invalidates the PNG cache."""
+    return {
+        "size": int(size),
+        "ben_graham": bool(cfg_pre.get("ben_graham", True)),
+        "sigma_divisor": float(cfg_pre.get("sigma_divisor", 30)),
+        "rim_fraction": float(cfg_pre.get("rim_fraction", 0.95)),
+        "edge_erode_fraction": float(cfg_pre.get("edge_erode_fraction", 0.03)),
+        "mask_threshold": float(mask_threshold),
+        "pad_value": PAD_VALUE,
+        "version": 3,
+    }
+
+
 def analyse_bytes(data: bytes, cfg_quality: Mapping[str, Any]) -> dict[str, Any]:
     """Decode + statistics + quality flag + MD5 for one encoded image."""
     img = decode_image(data)

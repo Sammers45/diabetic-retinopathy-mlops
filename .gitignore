@@ -49,3 +49,6 @@ tests/fixtures/synthetic*/
 Thumbs.db
 .vscode/
 .idea/
+
+# --- Reports built from real images stay local (licence) ---
+reports/local/
