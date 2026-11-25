@@ -1,0 +1,51 @@
+# --- Data: never commit images or derived data (licence + size) ---
+data/*
+!data/README.md
+*.jpeg
+*.jpg
+*.png
+*.tif
+*.tiff
+*.zip
+!reports/**/*.png
+
+# --- MLflow stores ---
+mlruns/
+mlruns*.db
+mlruns.db*
+mlartifacts/
+mlflow-data/
+
+# --- Prediction logs / monitoring outputs ---
+logs/
+*.parquet
+*.sqlite
+
+# --- Secrets ---
+.env
+.env.*
+kaggle.json
+access_token
+*.pem
+
+# --- Python / tooling ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+build/
+dist/
+
+# --- Test fixtures are generated at test time, never committed ---
+tests/fixtures/synthetic/
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,21 @@
+# Local CPU / CI environment (Python 3.11). Versions are pinned to the set the code was written
+# and tested against; library APIs (MLflow, Evidently, kagglehub) change between releases.
+tensorflow==2.21.0
+mlflow==3.18.0
+evidently==0.7.23
+kagglehub==1.0.3
+numpy==2.4.6
+# evidently 0.7.x is incompatible with pandas 3.x
+pandas==2.3.3
+pyarrow==26.0.1
+scikit-learn==1.9.1
+scipy==1.17.1
+opencv-python-headless==5.1.0.95
+pillow==13.0.0
+matplotlib==3.11.2
+pyyaml==6.0.4
+fastapi==0.165.0
+uvicorn==0.54.0
+python-multipart==0.0.34
+httpx==0.28.1
+pytest==9.2.0

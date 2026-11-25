@@ -1,0 +1,6 @@
+# Only what Google Colab does not ship. Colab already provides TensorFlow, numpy, pandas,
+# scikit-learn, OpenCV, matplotlib and PyYAML; reinstalling them would fight its CUDA build.
+mlflow==3.18.0
+kagglehub==1.0.3
+# Needed from Phase 7 (drift reports).
+evidently==0.7.23

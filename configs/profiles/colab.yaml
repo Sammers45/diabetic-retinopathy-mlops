@@ -1,0 +1,32 @@
+# Google Colab GPU profile: full data, larger images, mixed precision.
+# MLflow lives on Google Drive so runs survive the Colab session; a remote server set via
+# MLFLOW_TRACKING_URI takes precedence.
+paths:
+  # Keep raw/processed data on the fast local Colab disk, not on Drive.
+  raw_dir: "/content/data/raw"
+  processed_dir: "/content/data/processed"
+  reports_dir: "/content/drive/MyDrive/dr-mlops/reports"
+  logs_dir: "/content/drive/MyDrive/dr-mlops/logs"
+
+data:
+  max_images: null
+  num_workers: 8
+
+preprocess:
+  image_size: 384
+
+model:
+  family: "efficientnet_b0"
+  fine_tune_layers: 60
+
+train:
+  batch_size: 32
+  head_epochs: 3
+  finetune_epochs: 15
+  mixed_precision: true
+
+reference:
+  n_images: 2000
+
+mlflow:
+  tracking_uri: "sqlite:////content/drive/MyDrive/dr-mlops/mlruns.db"

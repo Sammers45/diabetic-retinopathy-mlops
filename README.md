@@ -1,0 +1,106 @@
+# Referable Diabetic Retinopathy: MLOps pipeline
+
+[![tests](https://github.com/Sammers45/diabetic-retinopathy-mlops/actions/workflows/tests.yml/badge.svg)](https://github.com/Sammers45/diabetic-retinopathy-mlops/actions/workflows/tests.yml)
+
+This project classifies retinal fundus photographs from EyePACS (Kaggle "Diabetic Retinopathy
+Detection", 2015) as **referable diabetic retinopathy** (ICDR grade ≥ 2) or not. It is built as
+a reproducible MLOps pipeline: experiment tracking, a model registry, serving and post-deployment
+drift monitoring, all with MLflow.
+
+> ⚠️ **Not a medical device.** This is a portfolio/research project. Its outputs must not be used
+> for diagnosis, screening or any clinical decision.
+
+## Status
+
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | Setup: config system, MLflow helper, synthetic fixtures, CI | ✅ done (`phase-0`) |
+| 1 | Data download with kagglehub | ⏳ next |
+| 2 | Ingest, validate, image quality, EDA | ⬜ |
+| 3 | Patient-level split and preprocessing (PNG cache) | ⬜ |
+| 4 | Training with MLflow tracking | ⬜ |
+| 5 | Evaluation, reference profile, registry, model card | ⬜ |
+| 6 | Serving (FastAPI) and prediction log | ⬜ |
+| 7 | Drift monitoring (Evidently → MLflow) | ⬜ |
+| 8 | Champion/challenger retraining and scheduled CI | ⬜ |
+
+## Results
+
+**Pending first real run.** Only metrics from a real-data run with an MLflow run ID will be
+reported here. Tests use synthetic images, and their numbers are never reported as results.
+
+## Task definition
+
+- **Input:** one colour fundus photograph (one eye).
+- **Label:** `1` if ICDR grade ≥ 2 (moderate NPDR, severe NPDR, proliferative DR), else `0`.
+- **Output:** `P(referable)` and a yes/no decision. The threshold is chosen on validation data
+  to give ≥ 90% sensitivity.
+
+## Quick start (local CPU)
+
+Python 3.11 is required, because TensorFlow does not support newer versions.
+
+```bash
+# Linux / macOS
+make setup && source .venv/bin/activate
+make fixtures test
+```
+
+```powershell
+# Windows (no make needed; uses uv if it is installed)
+.\scripts\tasks.ps1 setup
+.\scripts\tasks.ps1 fixtures
+.\scripts\tasks.ps1 test
+```
+
+The real-data targets (`download`, `data`, `train`, `train-baseline`) are added in Phases 1–5.
+
+## Configuration
+
+There is one config system, applied in this order:
+
+1. `configs/base.yaml`
+2. a run profile from `configs/profiles/`, deep-merged on top:
+   - `local_cpu`: about 3,000 images, 224 px, EfficientNet-B0, `sqlite:///mlruns.db`
+   - `colab`: full data, 384 px, mixed precision, MLflow on Google Drive
+3. command-line overrides: `--set key.sub=value`, which can be repeated.
+
+The profile is auto-detected (Colab → `colab`, otherwise `local_cpu`). You can override it with
+the `DR_PROFILE` environment variable or `--profile`. To print the resolved config:
+
+```bash
+PYTHONPATH=src python -m dr.config --profile local_cpu --set train.batch_size=16
+```
+
+Overriding an unknown key is an error, so typos never pass silently.
+
+## MLflow
+
+- **Default store:** `sqlite:///mlruns.db` in the working directory. Artifacts go to
+  `mlartifacts/` next to the database, so the two can be copied together.
+- **Remote server:** set `MLFLOW_TRACKING_URI`. It always takes precedence over the config.
+- **Open the UI:** run `make ui` or `.\scripts\tasks.ps1 ui`, then go to <http://localhost:5000>.
+- **Tracking server:** run `make server` without Docker, or `docker compose up -d mlflow`. The
+  image is pinned to the installed MLflow version.
+
+## Repository layout
+
+```
+configs/            base.yaml + profiles/{local_cpu,colab}.yaml
+src/dr/             pipeline package (config.py, tracking.py so far)
+scripts/            make_synthetic_fixtures.py, tasks.ps1
+tests/              one test file per phase, synthetic data only
+notebooks/          colab_train.ipynb (calls src/ code only)
+data/               git-ignored except data/README.md
+```
+
+## Data and secrets policy
+
+- No images go in git, ever. `data/`, MLflow stores and `.env` are all git-ignored.
+- The Kaggle token is read from `KAGGLE_API_TOKEN`, `~/.kaggle/access_token` or
+  `~/.kaggle/kaggle.json`, and is never printed or committed.
+
+## Licence and data terms
+
+The code is for research and education. The EyePACS images are subject to the Kaggle competition
+or dataset terms, and are not redistributed here.

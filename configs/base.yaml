@@ -1,0 +1,95 @@
+# Base configuration. Run profiles in configs/profiles/ are deep-merged on top of this,
+# then `--set key.sub=value` overrides are applied last.
+#
+# YAML pitfalls (see tests/test_phase0_setup.py):
+#   * Keys are always quoted-safe strings: never use bare yes/no/on/off as keys.
+#   * Write floats with a dot before the exponent (0.001 or 1.0e-3); PyYAML reads `1e-3` as a string.
+
+project:
+  name: "dr-referable"
+  seed: 42
+
+paths:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  reports_dir: "reports"
+  logs_dir: "logs"
+
+data:
+  # local | kaggle_dataset | kaggle_competition
+  source: "kaggle_dataset"
+  # "<owner>/<dataset>" of an EyePACS copy with a labels CSV (image, level). Must be set explicitly.
+  kaggle_dataset: null
+  kaggle_competition: "diabetic-retinopathy-detection"
+  # The full competition archive is ~35 GB; downloading it requires this explicit opt-in.
+  allow_full_competition_download: false
+  # Stratified patient subset size (images). null = use all data.
+  max_images: null
+  # ICDR grade >= this value is "referable" (label 1).
+  referable_min_grade: 2
+  split:
+    train: 0.70
+    val: 0.15
+    test: 0.15
+  num_workers: 4
+
+quality:
+  # Thresholds for the per-image quality flag (computed inside the fundus mask).
+  min_brightness: 25.0
+  max_brightness: 220.0
+  min_sharpness: 15.0
+  min_fundus_fraction: 0.20
+  sharpness_size: 512
+
+preprocess:
+  image_size: 384
+  ben_graham: true
+  # Gaussian sigma = image_size / sigma_divisor (Ben Graham's normalisation).
+  sigma_divisor: 30
+  # Fraction of the radius kept; the outer rim is masked to remove edge artefacts.
+  rim_fraction: 0.95
+  # Lossless cache. JPEG caching caused train/serve skew in a previous attempt.
+  cache_format: "png"
+
+model:
+  # efficientnet_b0 | efficientnet_b3 | baseline_cnn
+  family: "efficientnet_b0"
+  pretrained: true
+  embedding_dim: 256
+  dropout: 0.3
+  # Number of top backbone layers unfrozen in stage 2 (BatchNorm stays frozen).
+  fine_tune_layers: 30
+
+augment:
+  flip: true
+  rotation: true
+  zoom: 0.10
+  brightness: 0.10
+  contrast: 0.10
+
+train:
+  batch_size: 32
+  head_epochs: 3
+  finetune_epochs: 10
+  head_lr: 0.001
+  finetune_lr: 0.0001
+  early_stopping_patience: 3
+  class_weights: true
+  mixed_precision: false
+
+evaluate:
+  target_sensitivity: 0.90
+  n_bootstrap: 1000
+
+# Drift reference profile settings. Deliberately NOT called `profile`, which would collide
+# with the run-profile concept.
+reference:
+  n_images: 1000
+  pca_components: 32
+
+mlflow:
+  # null -> sqlite:///mlruns.db. The MLFLOW_TRACKING_URI env var always wins.
+  tracking_uri: null
+  experiment_training: "dr-training"
+  experiment_monitoring: "dr-monitoring"
+  registered_model: "dr-referable"

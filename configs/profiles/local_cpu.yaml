@@ -1,0 +1,26 @@
+# Laptop CPU profile: the whole pipeline should finish in under an hour.
+data:
+  max_images: 3000
+  num_workers: 4
+
+preprocess:
+  image_size: 224
+
+model:
+  family: "efficientnet_b0"
+  fine_tune_layers: 20
+
+train:
+  batch_size: 32
+  head_epochs: 2
+  finetune_epochs: 3
+  mixed_precision: false
+
+evaluate:
+  n_bootstrap: 1000
+
+reference:
+  n_images: 500
+
+mlflow:
+  tracking_uri: "sqlite:///mlruns.db"
