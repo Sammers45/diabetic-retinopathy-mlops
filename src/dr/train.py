@@ -47,6 +47,9 @@ class TrainResult:
     model: Any
     history: list[dict[str, float]]
     splits: dict[str, pd.DataFrame]
+    evaluation: dict[str, Any] | None = None
+    model_version: str | None = None
+    alias: str | None = None
 
 
 # --------------------------------------------------------------------------- data
@@ -257,8 +260,56 @@ def train(cfg: Mapping[str, Any], pretrained: bool | None = None, run_name: str 
             (Path(tmp) / "history.json").write_text(json.dumps(history, indent=2), encoding="utf-8")
             mlflow.log_artifact(str(model_path), artifact_path="keras")
             mlflow.log_artifact(str(Path(tmp) / "history.json"), artifact_path="keras")
+        result = TrainResult(run.info.run_id, model, history, splits)
+        if get(cfg, "evaluate.enabled", True):
+            evaluate_and_register(cfg, result, bs)
         print(f"MLflow run {run.info.run_id} in experiment {info.experiment_name} ({info.tracking_uri})")
-        return TrainResult(run.info.run_id, model, history, splits)
+        return result
+
+
+def score_split(model, df: pd.DataFrame, batch_size: int) -> np.ndarray:
+    """Inference-mode scores for one split (``predict`` never applies augmentation)."""
+    return model.predict(make_dataset(df, batch_size, shuffle=False, seed=0), verbose=0).reshape(-1)
+
+
+def evaluate_and_register(cfg: Mapping[str, Any], result: TrainResult, batch_size: int) -> None:
+    """Phase 5 inside the training run: threshold on val, test once, reference profile, registry."""
+    import mlflow
+
+    from dr import evaluate as E
+    from dr import reference as R
+    from dr import serving_model as S
+
+    scored = {}
+    for s in ("val", "test"):
+        part = result.splits[s].copy()
+        part["p_referable"] = score_split(result.model, part, batch_size)
+        scored[s] = part
+    with tempfile.TemporaryDirectory() as tmp:
+        eval_dir, ref_dir = Path(tmp) / "evaluation", Path(tmp) / "reference_profile"
+        summary = E.evaluate(scored["val"], scored["test"], cfg, eval_dir)
+        mlflow.log_metrics(E.mlflow_metrics(summary))
+        mlflow.log_artifacts(str(eval_dir), artifact_path="evaluation")
+        pca, ref = R.build_reference(result.model, result.splits["train"], cfg, summary["threshold"], ref_dir)
+        mlflow.log_artifacts(str(ref_dir), artifact_path="reference_profile")
+        mlflow.log_metrics(
+            {"reference_positive_rate": ref["positive_rate"], "reference_pca_explained_variance": ref["pca_explained_variance"]}
+        )
+    run_tags = mlflow.tracking.MlflowClient().get_run(result.run_id).data.tags
+    tags = {k: run_tags.get(k, "") for k in ("profile", "data", "model_family")}
+    mv, alias, _ = S.log_and_register(result.model, pca, cfg, summary["threshold"], result.run_id, extra_tags=tags)
+    mlflow.set_tags(
+        {"registered_model": str(get(cfg, "mlflow.registered_model")), "registered_version": str(mv.version), "registered_alias": alias}
+    )
+    result.evaluation, result.model_version, result.alias = summary, str(mv.version), alias
+    t = summary["test"]
+    ci = summary["test_ci95"]
+    print(
+        f"Threshold {summary['threshold']:.4f} (val sensitivity {summary['val']['sensitivity']:.3f}). "
+        f"TEST: AUC {t['roc_auc']:.3f} [{ci['roc_auc'][0]:.3f}-{ci['roc_auc'][1]:.3f}], "
+        f"sens {t['sensitivity']:.3f}, spec {t['specificity']:.3f}. Registered "
+        f"{get(cfg, 'mlflow.registered_model')} v{mv.version} @{alias}"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

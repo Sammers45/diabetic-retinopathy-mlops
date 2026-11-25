@@ -104,6 +104,8 @@ train:
   mixed_precision: false
 
 evaluate:
+  # Evaluate on val/test, build the reference profile and register the model after training.
+  enabled: true
   target_sensitivity: 0.90
   n_bootstrap: 1000
 
