@@ -86,9 +86,18 @@ KAGGLE_DATASET = "tanlikesmath/diabetic-retinopathy-resized"
 !python -m dr.download --set data.source={DATA_SOURCE} --set data.kaggle_dataset={KAGGLE_DATASET}
 """
     ),
+    md("## 4. Ingest, validate, image quality"),
+    code(
+        """
+!python -m dr.data
+
+import json
+report = json.load(open("/content/data/processed/data_quality.json"))
+print(json.dumps({k: report[k] for k in ["n_images", "n_patients", "referable_share", "grade_counts", "quality_counts", "poor_quality_share"]}, indent=1))
+"""
+    ),
     md(
         """
-## 4. Ingest and data quality *(Phase 2)*
 ## 5. Train, evaluate, register *(Phases 4–5)*
 ## 6. Monitoring replay *(Phase 7)*
 ## 7. Viewing runs

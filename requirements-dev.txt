@@ -1,0 +1,5 @@
+# Optional local tools: executing notebooks headlessly (used to check 01_eda.ipynb runs).
+-r requirements.txt
+nbclient==0.11.0
+nbformat==5.11.1
+ipykernel==7.4.0

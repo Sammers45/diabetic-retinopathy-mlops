@@ -31,6 +31,10 @@ data:
   delete_archives: false
   # Stratified patient subset size (images). null = use all data.
   max_images: null
+  # Labels CSV (path relative to paths.raw_dir); null = auto-detect a CSV with image + level.
+  labels_csv: null
+  # Directory names (substrings) skipped when indexing images, e.g. pre-cropped variants.
+  exclude_dirs: ["cropped"]
   # ICDR grade >= this value is "referable" (label 1).
   referable_min_grade: 2
   split:
@@ -40,11 +44,22 @@ data:
   num_workers: 4
 
 quality:
-  # Thresholds for the per-image quality flag (computed inside the fundus mask).
-  min_brightness: 25.0
+  # Thresholds for the per-image quality flag (computed inside the fundus mask at 512 px).
+  # Calibrated in Phase 2 by visual review of real EyePACS images at stat percentiles:
+  #  * sharpness < 60 (~bottom 2%) is almost always hazy/blurred; 60-90 is mixed; >90 gradable
+  #  * brightness 20-25 is dark but vessels remain visible (rescued by Ben Graham); < 20 is not
+  #  * brightness > 180 is mostly pale-but-normal fundi; only > 220 is washed out
+  #  * fundus fraction < 0.35 is near-black frames or corrupted composites
+  # These flag clear capture failures only; they are not a gradability label.
+  min_brightness: 20.0
   max_brightness: 220.0
-  min_sharpness: 15.0
-  min_fundus_fraction: 0.20
+  min_sharpness: 60.0
+  min_fundus_fraction: 0.35
+  # Fundus mask: max-channel value above which a pixel counts as fundus (after a median blur).
+  mask_threshold: 10.0
+  # If the fundus mask is too small and the 99th-percentile brightness is below this, the image
+  # is "too_dark" rather than "no_fundus".
+  dark_p99: 40.0
   sharpness_size: 512
 
 preprocess:

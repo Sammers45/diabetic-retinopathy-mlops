@@ -42,7 +42,7 @@ build/
 dist/
 
 # --- Test fixtures are generated at test time, never committed ---
-tests/fixtures/synthetic/
+tests/fixtures/synthetic*/
 
 # --- OS / editor ---
 .DS_Store

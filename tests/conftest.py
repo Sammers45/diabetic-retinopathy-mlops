@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
+os.environ.setdefault("MPLBACKEND", "Agg")  # headless plotting in tests/CI
 
 
 @pytest.fixture(scope="session")
