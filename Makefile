@@ -7,7 +7,7 @@ export MLFLOW_DISABLE_AGENT_HINT := 1
 
 CFG := $(if $(PROFILE),--profile $(PROFILE),) $(foreach s,$(SET),--set $(s))
 
-.PHONY: setup fixtures download data train train-baseline ui server test clean
+.PHONY: setup fixtures download data train train-baseline serve ui server test clean
 
 setup:            ## Create .venv and install requirements
 	$(PY) -m venv .venv
@@ -28,6 +28,9 @@ train:            ## Phase 4-5: train EfficientNet, evaluate, register
 
 train-baseline:   ## Phase 4-5: train the from-scratch baseline CNN
 	$(PY) -m dr.train $(CFG) --set model.family=baseline_cnn --set model.pretrained=false
+
+serve:            ## Phase 6: FastAPI on http://127.0.0.1:8000 (docs at /docs), serving dr-referable@champion
+	$(PY) -m dr.api $(CFG)
 
 ui:               ## MLflow UI on the local sqlite store
 	$(PY) -m mlflow ui --backend-store-uri sqlite:///mlruns.db --port 5000

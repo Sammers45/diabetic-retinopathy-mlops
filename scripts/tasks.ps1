@@ -8,7 +8,7 @@
 #>
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet("setup", "fixtures", "download", "data", "train", "train-baseline", "ui", "server", "test", "clean")]
+    [ValidateSet("setup", "fixtures", "download", "data", "train", "train-baseline", "serve", "ui", "server", "test", "clean")]
     [string]$Target,
     [string]$RunProfile = "",
     [string[]]$Set = @()
@@ -45,6 +45,7 @@ switch ($Target) {
     "data"           { Invoke-Py -m dr.data @CfgArgs }
     "train"          { Invoke-Py -m dr.train @CfgArgs }
     "train-baseline" { Invoke-Py -m dr.train @CfgArgs --set model.family=baseline_cnn --set model.pretrained=false }
+    "serve"          { Invoke-Py -m dr.api @CfgArgs }
     "ui"             { Invoke-Py -m mlflow ui --backend-store-uri sqlite:///mlruns.db --port 5000 }
     "server"         { Invoke-Py -m mlflow server --backend-store-uri sqlite:///mlruns.db --artifacts-destination ./mlartifacts --serve-artifacts --host 127.0.0.1 --port 5000 }
     "test"           { Invoke-Py -m pytest -q }

@@ -1,0 +1,15 @@
+# Keep the build context small and free of data, stores and secrets.
+.git
+.venv
+data
+logs
+mlruns*
+mlartifacts
+mlflow-data
+reports
+notebooks
+tests
+**/__pycache__
+.pytest_cache
+.env
+*.md

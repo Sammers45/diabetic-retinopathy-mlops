@@ -83,50 +83,8 @@ def test_evaluate_writes_artifacts(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------ end to end with TensorFlow + MLflow
-from conftest import require_tensorflow  # noqa: E402
-
-
-@pytest.fixture(scope="module")
-def champion(synthetic_data, tmp_path_factory):
-    """Train a tiny model on synthetic data; it is evaluated and registered as @champion."""
-    require_tensorflow()
-    import os
-
-    import mlflow
-
-    from dr import data as D
-    from dr import train as T
-    from dr.config import load_config
-
-    saved = os.environ.pop("MLFLOW_TRACKING_URI", None)
-    tmp = tmp_path_factory.mktemp("p5")
-    overrides = {
-        "paths.raw_dir": synthetic_data.root.as_posix(),
-        "paths.processed_dir": (tmp / "processed").as_posix(),
-        "paths.reports_dir": (tmp / "reports").as_posix(),
-        "mlflow.tracking_uri": f"sqlite:///{(tmp / 'mlruns.db').as_posix()}",
-        "data.max_images": "null",
-        "preprocess.image_size": "64",
-        "model.pretrained": "false",
-        "model.embedding_dim": "16",
-        "train.batch_size": "8",
-        "train.head_epochs": "1",
-        "train.finetune_epochs": "0",
-        "evaluate.n_bootstrap": "50",
-        "reference.n_images": "40",
-        "reference.pca_components": "8",
-    }
-    cfg = load_config("local_cpu", overrides=[f"{k}={v}" for k, v in overrides.items()])
-    df, report = D.build_manifest(cfg, workers=1)
-    df, _ = D.make_splits(df, cfg)
-    D.write_outputs(df, report, tmp / "processed")
-    D.cache_preprocessed(df, cfg, workers=1)
-    result = T.train(cfg, pretrained=False, run_name="p5-fixture")
-    yield result, cfg, tmp, synthetic_data
-    os.environ.pop("MLFLOW_TRACKING_URI", None)
-    if saved is not None:
-        os.environ["MLFLOW_TRACKING_URI"] = saved
-    mlflow.set_tracking_uri(None)
+# The `champion` fixture (a tiny model trained on synthetic data, registered as @champion) lives
+# in conftest.py so Phase 5 and Phase 6 share one training run.
 
 
 def _load_champion(cfg):
