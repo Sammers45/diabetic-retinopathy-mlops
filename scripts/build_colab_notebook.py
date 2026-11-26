@@ -100,17 +100,28 @@ split = json.load(open("/content/data/processed/split_summary.json"))
 print(json.dumps({"splits": split["splits"], "leakage": split["leakage"]}, indent=1))
 """
     ),
-    md("## 5. Train\nEfficientNet-B0 on the full data at 384 px with mixed precision. Evaluation and registration are added in Phase 5."),
+    md(
+        "## 5. Train, evaluate, register\n"
+        "EfficientNet-B0 on the full data at 384 px with mixed precision. The threshold is chosen on validation "
+        "(≥ 90% sensitivity), the test set is scored once, and the model is registered as `dr-referable`."
+    ),
     code(
         """
 !python -m dr.train --run-name effb0-colab
 
 import mlflow
+from IPython.display import Image, display
 from dr.config import load_config
 from dr.tracking import setup_mlflow
 setup_mlflow(load_config(), "dr-training")
 run = mlflow.search_runs(experiment_names=["dr-training"], order_by=["start_time DESC"], max_results=1).iloc[0]
-print("run", run.run_id, "| best val AUC", run.get("metrics.best_val_auc"), "| train minutes", round(run.get("metrics.train_seconds", 0) / 60, 1))
+m = lambda k: run.get(f"metrics.{k}")
+print(f"run {run.run_id} | registered v{run.get('tags.registered_version')} @{run.get('tags.registered_alias')}")
+print(f"threshold {m('threshold'):.4f} | train minutes {m('train_seconds') / 60:.1f}")
+for k in ["roc_auc", "pr_auc", "sensitivity", "specificity", "ppv", "npv", "brier"]:
+    print(f"TEST {k:<12} {m('test_' + k):.3f}  [{m('test_' + k + '_ci_low'):.3f}, {m('test_' + k + '_ci_high'):.3f}]")
+for name in ["roc_test.png", "calibration_test.png", "confusion_test.png"]:
+    display(Image(mlflow.artifacts.download_artifacts(run_id=run.run_id, artifact_path=f"evaluation/{name}")))
 """
     ),
     md(
