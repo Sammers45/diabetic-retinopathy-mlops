@@ -62,8 +62,11 @@ def artifact_root_for(uri: str) -> Path | None:
     return None if db is None else db.parent / "mlartifacts"
 
 
-def setup_mlflow(cfg: Mapping[str, Any], experiment_name: str) -> TrackingInfo:
-    """Point MLflow at the right store and select (creating if needed) an experiment."""
+def configure_tracking(cfg: Mapping[str, Any]) -> tuple[str, bool]:
+    """Point MLflow at the configured store without touching experiments (used by serving).
+
+    Returns ``(uri, user_set)``; ``user_set`` is read before ``set_tracking_uri`` mutates the env.
+    """
     import mlflow
 
     uri, user_set = resolve_tracking_uri(cfg)  # read BEFORE set_tracking_uri mutates os.environ
@@ -73,6 +76,14 @@ def setup_mlflow(cfg: Mapping[str, Any], experiment_name: str) -> TrackingInfo:
         # Normalise to an absolute path so runs from another working directory hit the same DB.
         uri = "sqlite:///" + db.as_posix()
     mlflow.set_tracking_uri(uri)
+    return uri, user_set
+
+
+def setup_mlflow(cfg: Mapping[str, Any], experiment_name: str) -> TrackingInfo:
+    """Point MLflow at the right store and select (creating if needed) an experiment."""
+    import mlflow
+
+    uri, user_set = configure_tracking(cfg)
 
     artifact_location: str | None = None
     experiment = mlflow.get_experiment_by_name(experiment_name)

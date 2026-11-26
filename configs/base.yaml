@@ -115,6 +115,22 @@ reference:
   n_images: 1000
   pca_components: 32
 
+serving:
+  # The API serves `models:/<mlflow.registered_model>@<model_alias>`. The alias is resolved to a
+  # concrete version once at startup, so every response reports exactly which version scored it.
+  model_alias: "champion"
+  host: "127.0.0.1"
+  port: 8000
+  max_upload_mb: 10
+  allowed_content_types: ["image/jpeg", "image/png", "image/tiff", "image/bmp"]
+  # SQLite, because /feedback updates rows in place (Parquet would need a rewrite per label).
+  # Relative paths are anchored at the repo root.
+  prediction_log: "logs/predictions.db"
+  # Uploaded images are NOT stored by default (privacy + image licence). When true, they are
+  # written to image_log_dir as <request_id>.<ext> and the path is recorded in the log.
+  log_images: false
+  image_log_dir: "logs/images"
+
 mlflow:
   # null -> sqlite:///mlruns.db. The MLFLOW_TRACKING_URI env var always wins.
   tracking_uri: null

@@ -1,9 +1,14 @@
 # MLflow tracking server: sqlite backend + served artifacts on a named volume.
 # The image tag is pinned to the MLflow version in requirements.txt (3.18.0) so the client and
-# server agree on the schema. The `api` service is added in Phase 6.
+# server agree on the schema.
 #
 #   docker compose up -d mlflow      -> http://localhost:5000
 #   export MLFLOW_TRACKING_URI=http://localhost:5000
+#   make train                       -> registers dr-referable@champion on the server
+#   docker compose up -d api         -> http://localhost:8000/docs
+#
+# The API loads its model from the server's registry at startup, so a model must be registered
+# there first (models in a local sqlite:///mlruns.db are not visible to the container).
 services:
   mlflow:
     image: ghcr.io/mlflow/mlflow:v3.18.0
@@ -21,5 +26,19 @@ services:
       - mlflow-data:/mlflow
     restart: unless-stopped
 
+  api:
+    build: .
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      DR_PROFILE: local_cpu
+    ports:
+      - "8000:8000"
+    volumes:
+      - api-logs:/app/logs   # prediction log (logs/predictions.db) survives restarts
+    depends_on:
+      - mlflow
+    restart: unless-stopped
+
 volumes:
   mlflow-data:
+  api-logs:
