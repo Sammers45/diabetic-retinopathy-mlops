@@ -280,24 +280,35 @@ def evaluate_and_register(cfg: Mapping[str, Any], result: TrainResult, batch_siz
     from dr import reference as R
     from dr import serving_model as S
 
+    timings: dict[str, float] = {}
+    t0 = time.time()
     scored = {}
     for s in ("val", "test"):
         part = result.splits[s].copy()
         part["p_referable"] = score_split(result.model, part, batch_size)
         scored[s] = part
+    timings["score_seconds"] = time.time() - t0
     with tempfile.TemporaryDirectory() as tmp:
         eval_dir, ref_dir = Path(tmp) / "evaluation", Path(tmp) / "reference_profile"
+        t0 = time.time()
         summary = E.evaluate(scored["val"], scored["test"], cfg, eval_dir)
+        timings["evaluate_seconds"] = time.time() - t0
         mlflow.log_metrics(E.mlflow_metrics(summary))
         mlflow.log_artifacts(str(eval_dir), artifact_path="evaluation")
+        t0 = time.time()
         pca, ref = R.build_reference(result.model, result.splits["train"], cfg, summary["threshold"], ref_dir)
+        timings["reference_seconds"] = time.time() - t0
         mlflow.log_artifacts(str(ref_dir), artifact_path="reference_profile")
         mlflow.log_metrics(
             {"reference_positive_rate": ref["positive_rate"], "reference_pca_explained_variance": ref["pca_explained_variance"]}
         )
     run_tags = mlflow.tracking.MlflowClient().get_run(result.run_id).data.tags
     tags = {k: run_tags.get(k, "") for k in ("profile", "data", "model_family")}
+    t0 = time.time()
     mv, alias, _ = S.log_and_register(result.model, pca, cfg, summary["threshold"], result.run_id, extra_tags=tags)
+    timings["register_seconds"] = time.time() - t0
+    mlflow.log_metrics(timings)
+    print("Stage timings (s): " + ", ".join(f"{k}={v:.0f}" for k, v in timings.items()))
     mlflow.set_tags(
         {"registered_model": str(get(cfg, "mlflow.registered_model")), "registered_version": str(mv.version), "registered_alias": alias}
     )
